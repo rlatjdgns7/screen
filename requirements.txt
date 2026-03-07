@@ -1,0 +1,11 @@
+numpy>=1.24
+opencv-python>=4.8
+Pillow>=10.0
+rembg>=2.0.50
+onnxruntime-gpu>=1.16
+tqdm>=4.65
+torch>=2.1
+torchvision>=0.16
+simple-lama-inpainting>=0.1.0
+realesrgan>=0.3.0
+basicsr>=1.4.2
