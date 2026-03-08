@@ -178,6 +178,22 @@ class App(tk.Tk):
         self._seq_crf = tk.IntVar(value=18)
         self._seq_nvenc = tk.BooleanVar(value=False)
 
+        # ── 일괄 처리 변수 ──
+        self._batch_files: list[str] = []
+        self._batch_effect = tk.StringVar(value="원본 크롭 (고화질)")
+        self._batch_preset = tk.StringVar(value="zoom_in")
+        self._batch_resolution = tk.StringVar(value="1920x1080 (FHD)")
+        self._batch_duration = tk.DoubleVar(value=5.0)
+        self._batch_fps = tk.IntVar(value=30)
+        self._batch_crf = tk.IntVar(value=18)
+        self._batch_nvenc = tk.BooleanVar(value=False)
+        self._batch_sf_bpm = tk.IntVar(value=120)
+        self._batch_sf_intensity = tk.StringVar(value="보통")
+        self._batch_sf_entry = tk.StringVar(value="글리치")
+        self._batch_sf_color_grade = tk.StringVar(value="없음")
+        self._batch_sf_text = tk.StringVar(value="")
+        self._batch_output_dir = tk.StringVar()
+
         self._build_ui()
         self.update_idletasks()
         self.minsize(540, 780)
@@ -257,6 +273,10 @@ class App(tk.Tk):
         seq_tab = ttk.Frame(self._notebook)
         self._notebook.add(seq_tab, text="  이미지 시퀀스  ")
         self._build_sequence_tab(seq_tab, pad)
+
+        batch_tab = ttk.Frame(self._notebook)
+        self._notebook.add(batch_tab, text="  일괄 처리  ")
+        self._build_batch_tab(batch_tab, pad)
 
         self._notebook.bind("<<NotebookTabChanged>>", self._on_tab_change)
 
@@ -411,6 +431,137 @@ class App(tk.Tk):
         ttk.Spinbox(row, from_=10, to=30, textvariable=self._seq_crf, width=5).pack(side="left", padx=(4, 12))
         ttk.Checkbutton(row, text="NVENC", variable=self._seq_nvenc).pack(side="left")
 
+    def _build_batch_tab(self, parent, pad):
+        # 파일 리스트
+        list_frame = ttk.Frame(parent)
+        list_frame.pack(fill="both", expand=True, **pad)
+
+        self._batch_listbox = tk.Listbox(
+            list_frame, height=6, bg="#181825", fg="#cdd6f4",
+            selectbackground="#585b70", selectforeground="#cdd6f4",
+            font=("Consolas", 9), relief="flat",
+        )
+        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self._batch_listbox.yview)
+        self._batch_listbox.configure(yscrollcommand=scrollbar.set)
+        self._batch_listbox.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # 버튼
+        btn_frame = ttk.Frame(parent)
+        btn_frame.pack(fill="x", **pad)
+        ttk.Button(btn_frame, text="+ 파일 추가", command=self._batch_add_files).pack(side="left", padx=(0, 4))
+        ttk.Button(btn_frame, text="선택 삭제", command=self._batch_remove).pack(side="left", padx=(0, 4))
+        ttk.Button(btn_frame, text="전체 삭제", command=self._batch_clear).pack(side="left")
+
+        # 출력 폴더
+        row = ttk.Frame(parent); row.pack(fill="x", **pad)
+        ttk.Label(row, text="출력 폴더").pack(side="left")
+        ttk.Entry(row, textvariable=self._batch_output_dir, width=34, state="readonly").pack(side="left", padx=(8, 4))
+        ttk.Button(row, text="선택…", command=self._batch_browse_output).pack(side="left")
+
+        ttk.Separator(parent, orient="horizontal").pack(fill="x", pady=4, padx=12)
+
+        # 효과 선택
+        row = ttk.Frame(parent); row.pack(fill="x", **pad)
+        ttk.Label(row, text="효과 타입    ").pack(side="left")
+        batch_effect_combo = ttk.Combobox(row, textvariable=self._batch_effect, state="readonly", width=18,
+                     values=["원본 크롭 (고화질)", "켄번스 (줌/패닝)", "숏폼 (줌펄스)"])
+        batch_effect_combo.pack(side="left", padx=(8, 12))
+        batch_effect_combo.bind("<<ComboboxSelected>>", self._on_batch_effect_change)
+
+        # 켄번스 설정 프레임
+        self._batch_kb_frame = ttk.Frame(parent)
+        self._batch_kb_frame.pack(fill="x", **pad)
+
+        ttk.Label(self._batch_kb_frame, text="프리셋").pack(side="left")
+        ttk.Combobox(self._batch_kb_frame, textvariable=self._batch_preset, state="readonly", width=18,
+                     values=list(PRESET_LABELS.keys())).pack(side="left", padx=(8, 0))
+
+        # 숏폼 설정 프레임
+        self._batch_sf_frame = ttk.Frame(parent)
+
+        sf_row1 = ttk.Frame(self._batch_sf_frame); sf_row1.pack(fill="x", pady=2)
+        ttk.Label(sf_row1, text="BPM").pack(side="left")
+        ttk.Spinbox(sf_row1, from_=60, to=200, increment=5, textvariable=self._batch_sf_bpm, width=5
+                    ).pack(side="left", padx=(8, 16))
+        ttk.Label(sf_row1, text="강도").pack(side="left")
+        ttk.Combobox(sf_row1, textvariable=self._batch_sf_intensity, state="readonly", width=10,
+                     values=list(INTENSITY_LABELS.keys())).pack(side="left", padx=(8, 0))
+
+        sf_row2 = ttk.Frame(self._batch_sf_frame); sf_row2.pack(fill="x", pady=2)
+        ttk.Label(sf_row2, text="등장").pack(side="left")
+        ttk.Combobox(sf_row2, textvariable=self._batch_sf_entry, state="readonly", width=14,
+                     values=list(ENTRY_LABELS.keys())).pack(side="left", padx=(8, 16))
+        ttk.Label(sf_row2, text="컬러").pack(side="left")
+        ttk.Combobox(sf_row2, textvariable=self._batch_sf_color_grade, state="readonly", width=20,
+                     values=list(GRADE_LABELS.values())).pack(side="left", padx=(8, 0))
+
+        sf_row3 = ttk.Frame(self._batch_sf_frame); sf_row3.pack(fill="x", pady=2)
+        ttk.Label(sf_row3, text="텍스트").pack(side="left")
+        ttk.Entry(sf_row3, textvariable=self._batch_sf_text, width=30).pack(side="left", padx=(8, 0))
+
+        # 공통 설정
+        row = ttk.Frame(parent); row.pack(fill="x", **pad)
+        ttk.Label(row, text="해상도       ").pack(side="left")
+        ttk.Combobox(row, textvariable=self._batch_resolution, state="readonly", width=20,
+                     values=list(RESOLUTIONS.keys())).pack(side="left", padx=(8, 0))
+
+        row = ttk.Frame(parent); row.pack(fill="x", **pad)
+        ttk.Label(row, text="영상 길이(초)").pack(side="left")
+        self._batch_dur_label = ttk.Label(row, text="5.0초")
+        ttk.Scale(row, from_=1, to=15, variable=self._batch_duration, orient="horizontal", length=200,
+                  command=lambda _: self._batch_dur_label.configure(text=f"{self._batch_duration.get():.1f}초")
+                  ).pack(side="left", padx=(8, 4))
+        self._batch_dur_label.pack(side="left")
+
+        row = ttk.Frame(parent); row.pack(fill="x", **pad)
+        ttk.Label(row, text="FPS").pack(side="left")
+        ttk.Spinbox(row, from_=15, to=60, textvariable=self._batch_fps, width=5).pack(side="left", padx=(8, 16))
+        ttk.Label(row, text="CRF").pack(side="left")
+        ttk.Spinbox(row, from_=10, to=30, textvariable=self._batch_crf, width=5).pack(side="left", padx=(8, 16))
+        ttk.Checkbutton(row, text="NVENC", variable=self._batch_nvenc).pack(side="left")
+
+    def _on_batch_effect_change(self, _event=None):
+        effect = self._batch_effect.get()
+        self._batch_kb_frame.pack_forget()
+        self._batch_sf_frame.pack_forget()
+        if effect in ("켄번스 (줌/패닝)", "원본 크롭 (고화질)"):
+            self._batch_kb_frame.pack(fill="x", padx=12, pady=4)
+        else:
+            self._batch_sf_frame.pack(fill="x", padx=12, pady=4)
+
+    def _batch_add_files(self):
+        paths = filedialog.askopenfilenames(
+            title="이미지 선택 (여러 개 가능)",
+            filetypes=[("이미지", "*.jpg *.jpeg *.png *.bmp *.webp *.tiff"), ("모든 파일", "*.*")],
+        )
+        for p in paths:
+            if p not in self._batch_files:
+                self._batch_files.append(p)
+        self._batch_refresh_list()
+        if self._batch_files and not self._batch_output_dir.get():
+            self._batch_output_dir.set(str(Path(self._batch_files[0]).parent))
+
+    def _batch_remove(self):
+        sel = self._batch_listbox.curselection()
+        if sel:
+            self._batch_files.pop(sel[0])
+            self._batch_refresh_list()
+
+    def _batch_clear(self):
+        self._batch_files.clear()
+        self._batch_refresh_list()
+
+    def _batch_browse_output(self):
+        d = filedialog.askdirectory(title="출력 폴더 선택")
+        if d:
+            self._batch_output_dir.set(d)
+
+    def _batch_refresh_list(self):
+        self._batch_listbox.delete(0, tk.END)
+        for i, f in enumerate(self._batch_files):
+            self._batch_listbox.insert(tk.END, f"{i+1}. {Path(f).name}")
+
     # ─── 시퀀스 이벤트 ─────────────────────────────────
 
     def _seq_add_clips(self):
@@ -507,6 +658,9 @@ class App(tk.Tk):
 
     def _on_tab_change(self, _event=None):
         tab_idx = self._notebook.index(self._notebook.select())
+        if tab_idx == 3:
+            # 일괄 처리 탭: 출력 경로는 폴더 단위로 별도 관리
+            return
         if tab_idx == 2:
             # 시퀀스 탭: 클립이 있으면 첫 클립 기준 출력 경로
             if self._seq_clips:
@@ -562,6 +716,18 @@ class App(tk.Tk):
         tab_idx = self._notebook.index(self._notebook.select())
         inp = self._input_path.get()
         out = self._output_path.get()
+
+        if tab_idx == 3:
+            # 일괄 처리 탭
+            if not self._batch_files:
+                messagebox.showwarning("입력 필요", "이미지를 추가하세요.")
+                return
+            if not self._batch_output_dir.get():
+                self._batch_output_dir.set(str(Path(self._batch_files[0]).parent))
+            self._running = True
+            self._go_btn.configure(state="disabled")
+            threading.Thread(target=self._batch_pipeline, daemon=True).start()
+            return
 
         if tab_idx == 2:
             # 시퀀스 탭: 클립 리스트 확인
@@ -816,6 +982,203 @@ class App(tk.Tk):
         finally:
             self._running = False
             self._go_btn.configure(state="normal")
+
+
+    # ─── 일괄 처리 파이프라인 ──────────────────────────
+
+    def _batch_pipeline(self):
+        import cv2
+        import numpy as np
+
+        effect = self._batch_effect.get()
+        out_dir = self._batch_output_dir.get()
+        total = len(self._batch_files)
+        if effect == "원본 크롭 (고화질)":
+            suffix = "_crop"
+        elif effect == "켄번스 (줌/패닝)":
+            suffix = "_kenburns"
+        else:
+            suffix = "_shortform"
+        success = 0
+        errors = []
+
+        for file_idx, inp in enumerate(self._batch_files):
+            fname = Path(inp).stem
+            out = os.path.join(out_dir, f"{fname}{suffix}.mp4")
+            self._set_status(f"[{file_idx+1}/{total}] {Path(inp).name} 처리 중…", file_idx / total * 100)
+
+            try:
+                if effect == "원본 크롭 (고화질)":
+                    self._batch_crop(inp, out, file_idx, total)
+                elif effect == "켄번스 (줌/패닝)":
+                    self._batch_kenburns(inp, out, file_idx, total)
+                else:
+                    self._batch_shortform(inp, out, file_idx, total)
+                success += 1
+            except Exception as e:
+                errors.append(f"{Path(inp).name}: {e}")
+                self._set_status(f"[{file_idx+1}/{total}] 오류: {e}", (file_idx + 1) / total * 100)
+
+        # 완료 메시지
+        msg = f"완료! {success}/{total}개 영상 생성됨\n출력 폴더: {out_dir}"
+        if errors:
+            msg += f"\n\n오류 {len(errors)}건:\n" + "\n".join(errors)
+        self._set_status(f"일괄 처리 완료: {success}/{total}", 100)
+
+        if messagebox.askyesno("완료", f"{msg}\n\n출력 폴더를 열까요?"):
+            os.startfile(out_dir)
+
+        self._running = False
+        self._go_btn.configure(state="normal")
+
+    def _batch_kenburns(self, inp: str, out: str, file_idx: int, total: int):
+        import cv2
+
+        w, h = RESOLUTIONS[self._batch_resolution.get()]
+        preset_name = self._batch_preset.get()
+        duration = self._batch_duration.get()
+        fps = self._batch_fps.get()
+        crf = self._batch_crf.get()
+        nvenc = self._batch_nvenc.get()
+        extend_ratio = 0.20
+        prefix = f"[{file_idx+1}/{total}]"
+
+        raw = cv2.imread(inp, cv2.IMREAD_COLOR)
+        raw_h, raw_w = raw.shape[:2]
+
+        if raw_w < w or raw_h < h:
+            self._set_status(f"{prefix} AI 업스케일 중…", None)
+            original_hd = upscale_image(raw, w, h)
+        else:
+            original_hd = raw
+        hd_h, hd_w = original_hd.shape[:2]
+
+        self._set_status(f"{prefix} 세그멘테이션 중…", None)
+        seg = segment_image(original_hd)
+
+        config = get_preset(preset_name, bbox=seg.bbox, img_w=hd_w, img_h=hd_h,
+                            duration=duration, fps=fps, extend_ratio=extend_ratio)
+        total_frames = int(config.duration * config.fps)
+        max_zoom = max(config.start_zoom, config.end_zoom)
+
+        self._set_status(f"{prefix} 인페인팅 중…", None)
+        bg_inpainted = inpaint_background(seg.original, seg.alpha, extend_ratio=extend_ratio)
+        bg_inp_h, bg_inp_w = bg_inpainted.shape[:2]
+
+        need_w = int(w * max_zoom * 1.05)
+        need_h = int(h * max_zoom * 1.05)
+
+        if bg_inp_w >= need_w and bg_inp_h >= need_h:
+            bg_image = bg_inpainted
+            fg_up = seg.foreground
+        else:
+            scale = max(need_w / bg_inp_w, need_h / bg_inp_h)
+            new_w, new_h = int(bg_inp_w * scale), int(bg_inp_h * scale)
+            bg_image = cv2.resize(bg_inpainted, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
+            fg_w_s, fg_h_s = seg.foreground.shape[1], seg.foreground.shape[0]
+            fg_scale = max(new_w / fg_w_s, new_h / fg_h_s) if fg_w_s < new_w or fg_h_s < new_h else 1.0
+            if fg_scale > 1.0:
+                fg_up = cv2.resize(seg.foreground, (int(fg_w_s * fg_scale), int(fg_h_s * fg_scale)),
+                                   interpolation=cv2.INTER_LANCZOS4)
+            else:
+                fg_up = seg.foreground
+
+        bg_h, bg_w = bg_image.shape[:2]
+        fg_h, fg_w = fg_up.shape[:2]
+        if (fg_w, fg_h) != (bg_w, bg_h):
+            dw, dh = bg_w - fg_w, bg_h - fg_h
+            if dw > 0 or dh > 0:
+                pad_l, pad_r = max(dw // 2, 0), max(dw - dw // 2, 0)
+                pad_t, pad_b = max(dh // 2, 0), max(dh - dh // 2, 0)
+                fg_up = cv2.copyMakeBorder(fg_up, pad_t, pad_b, pad_l, pad_r,
+                                           borderType=cv2.BORDER_CONSTANT, value=(0, 0, 0, 0))
+            else:
+                fg_up = cv2.resize(fg_up, (bg_w, bg_h), interpolation=cv2.INTER_LANCZOS4)
+
+        self._set_status(f"{prefix} 렌더링 중…", None)
+        writer = create_video_writer(out, width=w, height=h, fps=fps, crf=crf, use_nvenc=nvenc)
+
+        for i in range(total_frames):
+            bg_cx, bg_cy, bg_zoom, fg_cx, fg_cy, fg_zoom = get_frame_params(config, i, total_frames)
+            frame = render_frame(bg_image, fg_up, bg_cx, bg_cy, bg_zoom, fg_cx, fg_cy, fg_zoom,
+                                 out_w=w, out_h=h)
+            write_frame(writer, frame)
+            if i % 10 == 0:
+                base_pct = file_idx / total * 100
+                frame_pct = (i / total_frames) * (100 / total)
+                self._set_status(f"{prefix} 렌더링 {i+1}/{total_frames}", base_pct + frame_pct)
+
+        finalize(writer)
+
+    def _batch_shortform(self, inp: str, out: str, file_idx: int, total: int):
+        from src.shortform import render_shortform, ShortformConfig
+
+        w, h = RESOLUTIONS[self._batch_resolution.get()]
+        intensity = INTENSITY_LABELS[self._batch_sf_intensity.get()]
+        entry_key = ENTRY_LABELS.get(self._batch_sf_entry.get(), "glitch")
+
+        grade_label = self._batch_sf_color_grade.get()
+        grade_key = "none"
+        for k, v in GRADE_LABELS.items():
+            if v == grade_label:
+                grade_key = k
+                break
+
+        prefix = f"[{file_idx+1}/{total}]"
+
+        config = ShortformConfig(
+            duration=self._batch_duration.get(),
+            fps=self._batch_fps.get(),
+            bpm=float(self._batch_sf_bpm.get()),
+            zoom_amplitude=0.04 * intensity,
+            shake_intensity=6.0 * intensity,
+            chroma_base=1.5 * intensity,
+            chroma_pulse=3.0 * intensity,
+            vignette_strength=0.45,
+            grain_intensity=12.0 * intensity,
+            glitch_probability=0.04 * intensity,
+            drift_range=15.0,
+            entry_style=entry_key,
+            color_grade=grade_key,
+            text_overlay=self._batch_sf_text.get(),
+            text_position="bottom",
+            text_font_size=48,
+            output_w=w,
+            output_h=h,
+            crf=self._batch_crf.get(),
+            use_nvenc=self._batch_nvenc.get(),
+        )
+
+        def batch_progress(msg, pct):
+            base_pct = file_idx / total * 100
+            sub_pct = (pct / 100) * (100 / total) if pct else 0
+            self._set_status(f"{prefix} {msg}", base_pct + sub_pct)
+
+        render_shortform(inp, out, config, progress_cb=batch_progress)
+
+    def _batch_crop(self, inp: str, out: str, file_idx: int, total: int):
+        from src.crop_render import render_crop_video
+
+        w, h = RESOLUTIONS[self._batch_resolution.get()]
+        prefix = f"[{file_idx+1}/{total}]"
+
+        def crop_progress(msg, pct):
+            base_pct = file_idx / total * 100
+            sub_pct = (pct / 100) * (100 / total) if pct else 0
+            self._set_status(f"{prefix} {msg}", base_pct + sub_pct)
+
+        render_crop_video(
+            input_path=inp,
+            output_path=out,
+            preset=self._batch_preset.get(),
+            out_w=w,
+            out_h=h,
+            duration=self._batch_duration.get(),
+            fps=self._batch_fps.get(),
+            crf=self._batch_crf.get(),
+            use_nvenc=self._batch_nvenc.get(),
+            progress_cb=crop_progress,
+        )
 
 
 if __name__ == "__main__":
